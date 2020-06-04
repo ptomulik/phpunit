@@ -9,18 +9,8 @@
  */
 namespace PHPUnit\Framework\Constraint;
 
-use PHPUnit\Framework\ExpectationFailedException;
-
-/**
- * Logical NOT.
- */
-final class LogicalNot extends Constraint
+final class LogicalNot extends UnaryOperator
 {
-    /**
-     * @var Constraint
-     */
-    private $constraint;
-
     public static function negate(string $string): string
     {
         $positives = [
@@ -51,12 +41,16 @@ final class LogicalNot extends Constraint
 
         \preg_match('/(\'[\w\W]*\')([\w\W]*)("[\w\W]*")/i', $string, $matches);
 
+        $positives = \array_map(function (string $s) {
+            return '/\\b' . \preg_quote($s, '/') . '/';
+        }, $positives);
+
         if (\count($matches) > 0) {
             $nonInput = $matches[2];
 
-            $negatedString = \str_replace(
-                $nonInput,
-                \str_replace(
+            $negatedString = \preg_replace(
+                '/' . \preg_quote($nonInput, '/') . '/',
+                \preg_replace(
                     $positives,
                     $negatives,
                     $nonInput
@@ -64,7 +58,7 @@ final class LogicalNot extends Constraint
                 $string
             );
         } else {
-            $negatedString = \str_replace(
+            $negatedString = \preg_replace(
                 $positives,
                 $negatives,
                 $string
@@ -75,93 +69,57 @@ final class LogicalNot extends Constraint
     }
 
     /**
-     * @param Constraint|mixed $constraint
+     * Returns the name of this operator.
      */
-    public function __construct($constraint)
+    public function operator(): string
     {
-        if (!($constraint instanceof Constraint)) {
-            $constraint = new IsEqual($constraint);
-        }
-
-        $this->constraint = $constraint;
+        return 'not';
     }
 
     /**
-     * Evaluates the constraint for parameter $other
-     *
-     * If $returnResult is set to false (the default), an exception is thrown
-     * in case of a failure. null is returned otherwise.
-     *
-     * If $returnResult is true, the result of the evaluation is returned as
-     * a boolean value instead: true in case of success, false in case of a
-     * failure.
-     *
-     * @throws ExpectationFailedException
-     * @throws \SebastianBergmann\RecursionContext\InvalidArgumentException
+     * Returns this operator's precedence, as defined in
+     * https://www.php.net/manual/en/language.operators.precedence.php
      */
-    public function evaluate($other, string $description = '', bool $returnResult = false): ?bool
+    public function precedence(): int
     {
-        $success = !$this->constraint->evaluate($other, $description, true);
-
-        if ($returnResult) {
-            return $success;
-        }
-
-        if (!$success) {
-            $this->fail($other, $description);
-        }
-
-        return null;
+        return 5;
     }
 
     /**
-     * Returns a string representation of the constraint.
+     * Evaluates the constraint for parameter $other. Returns true if the
+     * constraint is met, false otherwise.
+     *
+     * @param mixed $other value or object to evaluate
      */
-    public function toString(): string
+    protected function matches($other): bool
     {
-        switch (\get_class($this->constraint)) {
-            case LogicalAnd::class:
-            case self::class:
-            case LogicalOr::class:
-                return 'not( ' . $this->constraint->toString() . ' )';
-
-            default:
-                return self::negate(
-                    $this->constraint->toString()
-                );
-        }
+        return !$this->constraint()->evaluate($other, '', true);
     }
 
     /**
-     * Counts the number of constraint elements.
+     * Applies additional transformation to strings returned by toString() or
+     * failureDescription().
      */
-    public function count(): int
+    protected function transformString(string $string): string
     {
-        return \count($this->constraint);
+        return self::negate($string);
     }
 
     /**
-     * Returns the description of the failure
+     * Reduces the sub-expression starting at $this by skipping degenerate
+     * sub-expression and returns first descendant constraint that starts
+     * a non-reducible sub-expression
      *
-     * The beginning of failure messages is "Failed asserting that" in most
-     * cases. This method should return the second part of that sentence.
-     *
-     * @param mixed $other evaluated value or object
-     *
-     * @throws \SebastianBergmann\RecursionContext\InvalidArgumentException
+     * See Constraint::reduce() for more.
      */
-    protected function failureDescription($other): string
+    protected function reduce(): Constraint
     {
-        switch (\get_class($this->constraint)) {
-            case LogicalAnd::class:
-            case self::class:
-            case LogicalOr::class:
-                return 'not( ' . $this->constraint->failureDescription($other) . ' )';
+        $constraint = $this->constraint();
 
-            default:
-                return self::negate(
-                    $this->constraint->failureDescription($other)
-                );
+        if ($constraint instanceof self) {
+            return $constraint->constraint()->reduce();
         }
+
+        return parent::reduce();
     }
 }
